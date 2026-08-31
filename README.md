@@ -1,6 +1,6 @@
 # Ventol
 
-**Version:** v1.1.1
+**Version:** v1.1.2
 
 Um aplicativo mobile desenvolvido com React Native e Expo para controle e gerenciamento.
 
