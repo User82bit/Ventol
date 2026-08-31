@@ -11,6 +11,17 @@ export const Joystick: React.FC<JoystickProps> = ({ onMove, onStop, radius = 60 
   const pan = useRef(new Animated.ValueXY()).current;
   const maxDistance = radius; 
 
+  // Função interna para centralizar o botão e disparar a parada
+  const resetJoystick = () => {
+    Animated.spring(pan, {
+      toValue: { x: 0, y: 0 },
+      useNativeDriver: false,
+      friction: 5,
+    }).start();
+
+    onStop();
+  };
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -37,14 +48,16 @@ export const Joystick: React.FC<JoystickProps> = ({ onMove, onStop, radius = 60 
       },
       
       onPanResponderRelease: () => {
-        Animated.spring(pan, {
-          toValue: { x: 0, y: 0 },
-          useNativeDriver: false,
-          friction: 5,
-        }).start();
-
-        onStop();
+        resetJoystick();
       },
+
+      // 🛠️ CORREÇÃO: Disparado quando o cursor/toque sai da área delimitada ou perde o foco do sistema
+      onPanResponderTerminate: () => {
+        resetJoystick();
+      },
+
+      // Bloqueia que outros elementos de rolagem (como a ScrollView de fundo) roubem os gestos do joystick
+      onPanResponderTerminationRequest: () => false,
     })
   ).current;
 
