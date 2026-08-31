@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Ventol",
-    "slug": "Ventol",
+    "name": "aula-componentes",
+    "slug": "aula-componentes",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
