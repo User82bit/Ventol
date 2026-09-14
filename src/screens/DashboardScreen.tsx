@@ -9,15 +9,6 @@ import { ActuatorControl } from '../components/ActuatorControl';
 import { Joystick } from '../components/Joystick';
 import { SensorData } from '../types/sensorTypes';
 
-let GamepadControllerMobile: any = null;
-if (Platform.OS !== 'web') {
-  try {
-    GamepadControllerMobile = require('react-native-gamepad-controller').default;
-  } catch (e) {
-    console.log("Ignorando biblioteca móvel no ambiente Web.");
-  }
-}
-
 const MOCK_SENSORES: SensorData[] = [
   { id: '1', name: 'Sensor de Fumaça (MQ-2)', value: 12, unit: 'PPM', status: 'online', lastUpdated: '10:45:00' },
   { id: '2', name: 'Sensor de Umidade (DHT11)', value: 65, unit: '%', status: 'online', lastUpdated: '10:45:02' },
@@ -239,9 +230,6 @@ export const DashboardScreen: React.FC = () => {
         </TouchableOpacity>
       </ScrollView>
 
-      {Platform.OS !== 'web' && GamepadControllerMobile && (
-        <GamepadControllerMobile onData={handleGamepadDataMobile} />
-      )}
     </View>
   );
 };
