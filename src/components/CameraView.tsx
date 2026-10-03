@@ -1,17 +1,27 @@
 import React from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ActivityIndicator,
+  Image,
+  Platform,
+  StyleProp,
+  ViewStyle,
+} from 'react-native';
 import { WebView } from 'react-native-webview';
 
 interface Props {
   streamUrl: string;
+  containerStyle?: StyleProp<ViewStyle>;
 }
 
-export const CameraView: React.FC<Props> = ({ streamUrl }) => {
+export const CameraView: React.FC<Props> = ({ streamUrl, containerStyle }) => {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState(false);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, containerStyle]}>
       {error ? (
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>Câmera indisponível</Text>
@@ -24,14 +34,25 @@ export const CameraView: React.FC<Props> = ({ streamUrl }) => {
               <Text style={styles.loadingText}>Carregando câmera...</Text>
             </View>
           )}
-          <WebView
-            source={{ uri: streamUrl }}
-            style={styles.webview}
-            onLoadStart={() => setLoading(true)}
-            onLoadEnd={() => setLoading(false)}
-            onError={() => { setError(true); setLoading(false); }}
-            scalesPageToFit={true}
-          />
+          {Platform.OS === 'web' ? (
+            <Image
+              source={{ uri: streamUrl }}
+              style={styles.webview}
+              resizeMode="cover"
+              onLoadStart={() => setLoading(true)}
+              onLoadEnd={() => setLoading(false)}
+              onError={() => { setError(true); setLoading(false); }}
+            />
+          ) : (
+            <WebView
+              source={{ uri: streamUrl }}
+              style={styles.webview}
+              onLoadStart={() => setLoading(true)}
+              onLoadEnd={() => setLoading(false)}
+              onError={() => { setError(true); setLoading(false); }}
+              scalesPageToFit={true}
+            />
+          )}
         </>
       )}
     </View>
@@ -40,20 +61,24 @@ export const CameraView: React.FC<Props> = ({ streamUrl }) => {
 
 const styles = StyleSheet.create({
   container: {
-    height: 220,
+    flex: 1,
+    minHeight: 150,
     backgroundColor: '#000000',
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#1e293b',
-    marginBottom: 8,
   },
   webview: {
     flex: 1,
     backgroundColor: '#000000',
   },
   loadingContainer: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#000000',
@@ -64,7 +89,11 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   errorContainer: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#1e293b',
