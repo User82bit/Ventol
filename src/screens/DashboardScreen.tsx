@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  GestureResponderEvent,
   Pressable,
   StyleSheet,
   Text,
@@ -16,31 +17,44 @@ type MotorSide = 'left' | 'right';
 type DriveMode = 'auto' | 'reverse';
 type PressedMotors = Record<MotorSide, boolean>;
 
+interface TouchBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface MotorCardProps {
   side: 'ESQUERDO' | 'DIREITO';
   power: MotorPower;
   pressed: boolean;
-  onPressIn: () => void;
-  onPressOut: () => void;
+  onBoundsChange: (bounds: TouchBounds) => void;
 }
 
-function MotorCard({ side, power, pressed, onPressIn, onPressOut }: MotorCardProps) {
+function MotorCard({ side, power, pressed, onBoundsChange }: MotorCardProps) {
+  const cardRef = useRef<View>(null);
   const powerLabel = power === 1 ? 'AVANÇANDO' : power === -1 ? 'RECUANDO' : 'PARADO';
+
+  const measureCard = () => {
+    cardRef.current?.measureInWindow((x, y, width, height) => {
+      onBoundsChange({ x, y, width, height });
+    });
+  };
 
   return (
     <View style={styles.motorColumn}>
-      <Pressable
+      <View
+        ref={cardRef}
+        collapsable={false}
         accessibilityRole="button"
         accessibilityLabel={`Esteira do motor ${side.toLowerCase()}`}
         accessibilityHint="Mantenha pressionado para acionar esta esteira"
         accessibilityState={{ selected: pressed }}
-        style={({ pressed: isTouching }) => [
+        onLayout={measureCard}
+        style={[
           styles.motorCard,
           pressed && styles.motorCardActive,
-          isTouching && styles.motorCardTouching,
         ]}
-        onPressIn={onPressIn}
-        onPressOut={onPressOut}
       >
         <View style={styles.motorHeader}>
           <View style={[styles.motorStatusDot, power !== 0 && styles.motorStatusActive]} />
@@ -75,7 +89,7 @@ function MotorCard({ side, power, pressed, onPressIn, onPressOut }: MotorCardPro
           </View>
         </View>
         <Text style={styles.motorPower}>{powerLabel}</Text>
-      </Pressable>
+      </View>
       <Text style={styles.motorCaption}>MOTOR {side}</Text>
     </View>
   );
@@ -87,6 +101,10 @@ export default function DashboardScreen() {
     right: false,
   });
   const pressedMotorsRef = useRef<PressedMotors>({ left: false, right: false });
+  const motorBounds = useRef<Record<MotorSide, TouchBounds | null>>({
+    left: null,
+    right: null,
+  });
   const [driveMode, setDriveMode] = useState<DriveMode>('auto');
   const [distance, setDistance] = useState<string>('--');
   const [isConnected, setIsConnected] = useState(false);
@@ -134,10 +152,34 @@ export default function DashboardScreen() {
   };
 
   const updateMotor = (side: MotorSide, pressed: boolean) => {
+    if (pressedMotorsRef.current[side] === pressed) return;
+
     const nextMotors = { ...pressedMotorsRef.current, [side]: pressed };
     pressedMotorsRef.current = nextMotors;
     setPressedMotors(nextMotors);
     sendMotorState(nextMotors, driveMode);
+  };
+
+  const updateMotorsFromTouches = (event: GestureResponderEvent) => {
+    const nextMotors: PressedMotors = { left: false, right: false };
+
+    event.nativeEvent.touches.forEach(({ pageX, pageY }) => {
+      (['left', 'right'] as const).forEach((side) => {
+        const bounds = motorBounds.current[side];
+        if (
+          bounds &&
+          pageX >= bounds.x &&
+          pageX <= bounds.x + bounds.width &&
+          pageY >= bounds.y &&
+          pageY <= bounds.y + bounds.height
+        ) {
+          nextMotors[side] = true;
+        }
+      });
+    });
+
+    updateMotor('left', nextMotors.left);
+    updateMotor('right', nextMotors.right);
   };
 
   const changeDriveMode = (mode: DriveMode) => {
@@ -160,13 +202,20 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      <View style={[styles.content, compact && styles.contentCompact]}>
+      <View
+        style={[styles.content, compact && styles.contentCompact]}
+        onTouchStart={updateMotorsFromTouches}
+        onTouchMove={updateMotorsFromTouches}
+        onTouchEnd={updateMotorsFromTouches}
+        onTouchCancel={updateMotorsFromTouches}
+      >
         <MotorCard
           side="ESQUERDO"
           power={leftMotor}
           pressed={pressedMotors.left}
-          onPressIn={() => updateMotor('left', true)}
-          onPressOut={() => updateMotor('left', false)}
+          onBoundsChange={(bounds) => {
+            motorBounds.current.left = bounds;
+          }}
         />
 
         <View style={styles.centerColumn}>
@@ -219,8 +268,9 @@ export default function DashboardScreen() {
           side="DIREITO"
           power={rightMotor}
           pressed={pressedMotors.right}
-          onPressIn={() => updateMotor('right', true)}
-          onPressOut={() => updateMotor('right', false)}
+          onBoundsChange={(bounds) => {
+            motorBounds.current.right = bounds;
+          }}
         />
       </View>
     </SafeAreaView>
@@ -302,7 +352,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#e8f4fb',
     borderColor: '#b5ddf0',
   },
-  motorCardTouching: { opacity: 0.86 },
   motorHeader: { alignItems: 'center' },
   motorStatusDot: {
     width: 8,
