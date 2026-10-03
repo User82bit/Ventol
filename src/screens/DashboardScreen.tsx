@@ -1,249 +1,506 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, ScrollView, Alert, TouchableOpacity, TextInput, Platform, Switch } from 'react-native';
-import { Header } from '../components/Header';
-import { Sidebar } from '../components/Sidebar';
-import { CustomCard } from '../components/CustomCard';
-import { StatusBadge } from '../components/StatusBadge';
-import { AnimatedPulse } from '../components/AnimatedPulse';
-import { ActuatorControl } from '../components/ActuatorControl';
-import { Joystick } from '../components/Joystick';
-import { SensorData } from '../types/sensorTypes';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  GestureResponderEvent,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { CameraView } from '../components/CameraView';
+import { initConnections, sendControl } from '../services/robotConnection';
+import { CAMERA_STREAM_URL } from '../config/environment';
 
-let GamepadControllerMobile: any = null;
-if (Platform.OS !== 'web') {
-  try {
-    GamepadControllerMobile = require('react-native-gamepad-controller').default;
-  } catch (e) {
-    console.log("Ignorando biblioteca móvel no ambiente Web.");
-  }
+type MotorPower = -1 | 0 | 1;
+type MotorSide = 'left' | 'right';
+type DriveMode = 'auto' | 'reverse';
+type PressedMotors = Record<MotorSide, boolean>;
+
+interface TouchBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
-const MOCK_SENSORES: SensorData[] = [
-  { id: '1', name: 'Sensor de Fumaça (MQ-2)', value: 12, unit: 'PPM', status: 'online', lastUpdated: '10:45:00' },
-  { id: '2', name: 'Sensor de Umidade (DHT11)', value: 65, unit: '%', status: 'online', lastUpdated: '10:45:02' },
-  { id: '3', name: 'Sensor de Temperatura (DHT11)', value: 24.5, unit: '°C', status: 'online', lastUpdated: '10:45:02' },
-];
+interface MotorCardProps {
+  side: 'ESQUERDO' | 'DIREITO';
+  power: MotorPower;
+  pressed: boolean;
+  onBoundsChange: (bounds: TouchBounds) => void;
+}
 
-export const DashboardScreen: React.FC = () => {
-  const [isDarkMode, setIsDarkMode] = useState(false);
+function MotorCard({ side, power, pressed, onBoundsChange }: MotorCardProps) {
+  const cardRef = useRef<View>(null);
+  const powerLabel = power === 1 ? 'AVANÇANDO' : power === -1 ? 'RECUANDO' : 'PARADO';
 
-  useEffect(() => {
-    const carregarTemaUniversal = Platform.select({
-      web: () => {
-        try {
-          const temaSalvo = localStorage.getItem('@preferencia_tema');
-          if (temaSalvo !== null) setIsDarkMode(temaSalvo === 'escuro');
-        } catch (e) { console.log(e); }
-      },
-      default: async () => {
-        try {
-          const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-          const temaSalvo = await AsyncStorage.getItem('@preferencia_tema');
-          if (temaSalvo !== null) setIsDarkMode(temaSalvo === 'escuro');
-        } catch (e) { console.log(e); }
-      }
+  const measureCard = () => {
+    cardRef.current?.measureInWindow((x, y, width, height) => {
+      onBoundsChange({ x, y, width, height });
     });
-
-    carregarTemaUniversal();
-  }, []);
-
-  const alternarTema = async () => {
-    const novoModo = !isDarkMode;
-    setIsDarkMode(novoModo);
-    const valorTema = novoModo ? 'escuro' : 'claro';
-
-    const salvarTemaUniversal = Platform.select({
-      web: () => {
-        try { localStorage.setItem('@preferencia_tema', valorTema); } catch (e) { console.log(e); }
-      },
-      default: async () => {
-        try {
-          const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-          await AsyncStorage.setItem('@preferencia_tema', valorTema);
-        } catch (e) { console.log(e); }
-      }
-    });
-
-    salvarTemaUniversal();
-  };
-
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [farol, setFarol] = useState(true);
-  const [buzzer, setBuzzer] = useState(false);
-  const [motor, setMotor] = useState(true);
-  const [direcao, setDirecao] = useState({ x: 0, y: 0, força: 0 });
-  const [cameraIp, setCameraIp] = useState('http://192.168.1'); 
-  const [isGamepadConnected, setIsGamepadConnected] = useState(false);
-
-  const statesRef = useRef({ farol, buzzer });
-  useEffect(() => {
-    statesRef.current = { farol, buzzer };
-  }, [farol, buzzer]);
-
-  const handleSelectMenuOption = (option: string) => {
-    setIsSidebarOpen(false);
-    if (Platform.OS === 'web') {
-      alert(`Navegando para: ${option}`);
-    } else {
-      Alert.alert('Navegação', `Navegando para: ${option}`);
-    }
-  };
-
-  const handleParadaEmergencia = () => {
-    setFarol(false);
-    setBuzzer(false);
-    setMotor(false);
-    setDirecao({ x: 0, y: 0, força: 0 });
-    
-    if (Platform.OS === 'web') {
-      alert('🚨 PARADA DE EMERGÊNCIA\nTodos os motores e atuadores foram parados imediatamente!');
-    } else {
-      Alert.alert(
-        '🚨 PARADA DE EMERGÊNCIA',
-        'Todos os motores e atuadores foram parados imediatamente!',
-        [{ text: 'Entendido', style: 'destructive' }]
-      );
-    }
-  };
-
-  const handleJoystickMove = (data: { x: number; y: number; force: number }) => {
-    setDirecao({ x: data.x, y: data.y, força: data.force });
-  };
-
-  const handleJoystickStop = () => {
-    setDirecao({ x: 0, y: 0, força: 0 });
-  };
-
-  useEffect(() => {
-    if (Platform.OS !== 'web') return;
-    let animationId: number;
-    
-    const handleWebGamepad = () => {
-      const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-      const gp = gamepads[0]; 
-      
-      if (gp) {
-        if (!isGamepadConnected) setIsGamepadConnected(true);
-        const x = parseFloat((gp.axes[0] || 0).toFixed(2));
-        const y = parseFloat((-(gp.axes[1] || 0)).toFixed(2)); 
-        const force = parseFloat(Math.min(Math.sqrt(x ** 2 + y ** 2), 1).toFixed(2));
-        if (force > 0.15) {
-          handleJoystickMove({ x, y, force });
-        } else {
-          handleJoystickStop();
-        }
-        if (gp.buttons[0]?.pressed) handleParadaEmergencia();
-        if (gp.buttons[1]?.pressed) setFarol(statesRef.current.farol);
-        if (gp.buttons[2]?.pressed) setBuzzer(statesRef.current.buzzer);
-      } else {
-        if (isGamepadConnected) setIsGamepadConnected(false);
-      }
-      animationId = requestAnimationFrame(handleWebGamepad);
-    };
-    
-    animationId = requestAnimationFrame(handleWebGamepad);
-    return () => cancelAnimationFrame(animationId);
-  }, [isGamepadConnected]);
-
-  const handleGamepadDataMobile = (data: any) => {
-    if (data.connected !== isGamepadConnected) setIsGamepadConnected(data.connected);
-    if (!data.connected) return;
-    const axes = data.axes || [];
-    const x = parseFloat((axes[0] || 0).toFixed(2));
-    const y = parseFloat((-(axes[1] || 0)).toFixed(2));
-    const force = parseFloat(Math.min(Math.sqrt(x ** 2 + y ** 2), 1).toFixed(2));
-    if (force > 0.15) {
-      handleJoystickMove({ x, y, force });
-    } else {
-      handleJoystickStop();
-    }
-    const buttons = data.buttons || [];
-    if (buttons[0]?.pressed) handleParadaEmergencia();
-    if (buttons[1]?.justPressed) setFarol(!statesRef.current.farol);
-    if (buttons[2]?.justPressed) setBuzzer(!statesRef.current.buzzer);
   };
 
   return (
-    <View style={[styles.screenWrapper, isDarkMode ? styles.fundoEscuro : styles.fundoClaro]}>
-      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} onSelectOption={handleSelectMenuOption} />
-      
-      {/* ⚠️ Envolvendo o conteúdo no filtro dinâmico de cores se NÃO for modo escuro */}
-      <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-        
-        <View style={!isDarkMode ? styles.inverterCores : null}>
-          <Header title="🤖 Painel do Robô ESP" onToggleSidebar={() => setIsSidebarOpen(true)} />
+    <View style={styles.motorColumn}>
+      <View
+        ref={cardRef}
+        collapsable={false}
+        accessibilityRole="button"
+        accessibilityLabel={`Esteira do motor ${side.toLowerCase()}`}
+        accessibilityHint="Mantenha pressionado para acionar esta esteira"
+        accessibilityState={{ selected: pressed }}
+        onLayout={measureCard}
+        style={[
+          styles.motorCard,
+          pressed && styles.motorCardActive,
+        ]}
+      >
+        <View style={styles.motorHeader}>
+          <View style={[styles.motorStatusDot, power !== 0 && styles.motorStatusActive]} />
         </View>
-        
-        <View style={styles.themeToggleRow}>
-          <Text style={{ color: isDarkMode ? '#f8fafc' : '#0f172a', fontWeight: 'bold' }}>
-            {isDarkMode ? 'Modo Escuro' : 'Modo Claro'}
+        <View style={styles.track}>
+          <View style={styles.trackRail}>
+            {Array.from({ length: 7 }, (_, index) => (
+              <View
+                key={index}
+                style={[
+                  styles.trackPad,
+                  power !== 0 && styles.trackPadActive,
+                ]}
+              />
+            ))}
+          </View>
+          <View style={styles.trackCenter}>
+            <Text style={[styles.motorSign, power !== 0 && styles.motorSignActive]}>
+              {power === 1 ? '+' : power === -1 ? '−' : '0'}
+            </Text>
+          </View>
+          <View style={styles.trackRail}>
+            {Array.from({ length: 7 }, (_, index) => (
+              <View
+                key={index}
+                style={[
+                  styles.trackPad,
+                  power !== 0 && styles.trackPadActive,
+                ]}
+              />
+            ))}
+          </View>
+        </View>
+        <Text style={styles.motorPower}>{powerLabel}</Text>
+      </View>
+      <Text style={styles.motorCaption}>MOTOR {side}</Text>
+    </View>
+  );
+}
+
+export default function DashboardScreen() {
+  const [pressedMotors, setPressedMotors] = useState<PressedMotors>({
+    left: false,
+    right: false,
+  });
+  const pressedMotorsRef = useRef<PressedMotors>({ left: false, right: false });
+  const motorBounds = useRef<Record<MotorSide, TouchBounds | null>>({
+    left: null,
+    right: null,
+  });
+  const [driveMode, setDriveMode] = useState<DriveMode>('auto');
+  const [distance, setDistance] = useState<string>('--');
+  const [isConnected, setIsConnected] = useState(false);
+  const { width } = useWindowDimensions();
+  const compact = width < 720;
+  const leftMotor: MotorPower = pressedMotors.left
+    ? (driveMode === 'reverse' ? -1 : 1)
+    : pressedMotors.right
+      ? (driveMode === 'reverse' ? 1 : -1)
+      : 0;
+  const rightMotor: MotorPower = pressedMotors.right
+    ? (driveMode === 'reverse' ? -1 : 1)
+    : pressedMotors.left
+      ? (driveMode === 'reverse' ? 1 : -1)
+      : 0;
+
+  useEffect(() => {
+    initConnections(
+      (data) => {
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.distanceCm !== undefined) {
+            setDistance(parsed.distanceCm.toString());
+          }
+        } catch (error) {
+          console.error('Error parsing robot data', error);
+        }
+      },
+      setIsConnected
+    );
+  }, []);
+
+  const sendMotorState = (motors: PressedMotors, mode: DriveMode) => {
+    if (!motors.left && !motors.right) {
+      void sendControl(0, 0);
+      return;
+    }
+
+    const reverse = mode === 'reverse' ? -1 : 1;
+    const left = (motors.left ? 1 : -1) * reverse;
+    const right = (motors.right ? 1 : -1) * reverse;
+    const x = (left - right) / 2;
+    const y = (left + right) / 2;
+    void sendControl(x, y);
+  };
+
+  const updateMotor = (side: MotorSide, pressed: boolean) => {
+    if (pressedMotorsRef.current[side] === pressed) return;
+
+    const nextMotors = { ...pressedMotorsRef.current, [side]: pressed };
+    pressedMotorsRef.current = nextMotors;
+    setPressedMotors(nextMotors);
+    sendMotorState(nextMotors, driveMode);
+  };
+
+  const updateMotorsFromTouches = (event: GestureResponderEvent) => {
+    const nextMotors: PressedMotors = { left: false, right: false };
+
+    event.nativeEvent.touches.forEach(({ pageX, pageY }) => {
+      (['left', 'right'] as const).forEach((side) => {
+        const bounds = motorBounds.current[side];
+        if (
+          bounds &&
+          pageX >= bounds.x &&
+          pageX <= bounds.x + bounds.width &&
+          pageY >= bounds.y &&
+          pageY <= bounds.y + bounds.height
+        ) {
+          nextMotors[side] = true;
+        }
+      });
+    });
+
+    updateMotor('left', nextMotors.left);
+    updateMotor('right', nextMotors.right);
+  };
+
+  const changeDriveMode = (mode: DriveMode) => {
+    setDriveMode(mode);
+    sendMotorState(pressedMotorsRef.current, mode);
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.brand}>VENTOL</Text>
+          <Text style={styles.headerSubtitle}>PAINEL DE CONTROLE</Text>
+        </View>
+        <View style={[styles.connectionBadge, isConnected ? styles.connectedBadge : styles.offlineBadge]}>
+          <View style={[styles.connectionDot, isConnected ? styles.connectedDot : styles.offlineDot]} />
+          <Text style={[styles.connectionText, isConnected ? styles.connectedText : styles.offlineText]}>
+            {isConnected ? 'CONECTADO' : 'OFFLINE'}
           </Text>
-          <Switch
-            trackColor={{ false: '#cbd5e1', true: '#38bdf8' }}
-            thumbColor={isDarkMode ? '#0284c7' : '#f4f3f4'}
-            onValueChange={alternarTema}
-            value={isDarkMode}
-          />
         </View>
+      </View>
 
-        <View style={styles.statusRow}>
-          <AnimatedPulse color={isGamepadConnected ? '#38bdf8' : '#10b981'} />
-          <StatusBadge 
-            label={isGamepadConnected ? `Controle Conectado (${Platform.OS.toUpperCase()})` : "Conectado ao ESP32"} 
-            status="online" 
-          />
-        </View>
+      <View
+        style={[styles.content, compact && styles.contentCompact]}
+        onTouchStart={updateMotorsFromTouches}
+        onTouchMove={updateMotorsFromTouches}
+        onTouchEnd={updateMotorsFromTouches}
+        onTouchCancel={updateMotorsFromTouches}
+      >
+        <MotorCard
+          side="ESQUERDO"
+          power={leftMotor}
+          pressed={pressedMotors.left}
+          onBoundsChange={(bounds) => {
+            motorBounds.current.left = bounds;
+          }}
+        />
 
-        <Text style={styles.sectionTitle}>📹 Câmera do Semeador</Text>
-        <View style={styles.cameraContainer}>
-          <Text style={{color: '#94a3b8'}}>Stream da Câmera do Robô</Text>
-        </View>
-        <TextInput style={styles.ipInput} onChangeText={setCameraIp} value={cameraIp} placeholder="Insira o URL de Stream da Câmera" placeholderTextColor="#64748b" />
+        <View style={styles.centerColumn}>
+          <View style={styles.cameraFrame}>
+            <CameraView streamUrl={CAMERA_STREAM_URL} />
+          </View>
+          <View style={styles.dashboardFooter}>
+            <View style={styles.distanceCard}>
+              <View style={styles.distanceIcon}>
+                <View style={styles.sensorDot} />
+                <View style={styles.sensorWave} />
+              </View>
+              <View>
+                <Text style={styles.distanceLabel}>ULTRASSOM</Text>
+                <Text style={styles.distanceValue}>{distance}<Text style={styles.distanceUnit}> cm</Text></Text>
+              </View>
+            </View>
 
-        <Text style={styles.sectionTitle}>🕹️ Controle de Movimentação</Text>
-        <View style={styles.joystickContainer}>
-          <Joystick onMove={handleJoystickMove} onStop={handleJoystickStop} radius={65} />
-          <View style={styles.joystickDataView}>
-            <Text style={styles.joystickDataText}>Eixo X: {direcao.x.toFixed(2)}</Text>
-            <Text style={styles.joystickDataText}>Eixo Y: {direcao.y.toFixed(2)}</Text>
-            <Text style={styles.joystickDataText}>Potência: {Math.round(direcao.força * 100)}%</Text>
+            <View style={styles.gearSelector}>
+              <Text style={styles.gearLabel}>MODO DE CONDUÇÃO</Text>
+              <View style={styles.gearOptions}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Modo automático"
+                  accessibilityState={{ selected: driveMode === 'auto' }}
+                  style={[styles.gearButton, driveMode === 'auto' && styles.gearButtonSelected]}
+                  onPress={() => changeDriveMode('auto')}
+                >
+                  <Text style={[styles.gearButtonText, driveMode === 'auto' && styles.gearButtonTextSelected]}>
+                    AUTO
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Modo ré"
+                  accessibilityState={{ selected: driveMode === 'reverse' }}
+                  style={[styles.gearButton, driveMode === 'reverse' && styles.gearButtonSelected]}
+                  onPress={() => changeDriveMode('reverse')}
+                >
+                  <Text style={[styles.gearButtonText, driveMode === 'reverse' && styles.gearButtonTextSelected]}>
+                    R
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
           </View>
         </View>
 
-        {/* 📥 INSERÇÃO: Filtro aplicado em lote para Cards de Sensores e Atuadores */}
-        <View style={!isDarkMode ? styles.inverterCores : null}>
-          <Text style={styles.sectionTitle}>📡 Sensores em Tempo Real</Text>
-          {MOCK_SENSORES.map((sensor) => (
-            <CustomCard 
-              key={sensor.id} 
-              title={sensor.name} 
-              description={`Leitura: ${sensor.value} ${sensor.unit}`} 
-              buttonText="Ver Detalhes" 
-              onPress={() => handleSelectMenuOption(sensor.name)}
-            />
-          ))}
-
-          <Text style={[styles.sectionTitle, { marginTop: 16 }]}>⚡ Controle de Atuadores</Text>
-          <ActuatorControl name="Farol de LED Frontal" value={farol} onValueChange={setFarol} />
-          <ActuatorControl name="Alarme Sonoro (Buzzer)" value={buzzer} onValueChange={setBuzzer} />
-          <ActuatorControl name="Motor Esquerdo (Tração)" value={motor} onValueChange={setMotor} />
-        </View>
-
-        <TouchableOpacity 
-          onPress={handleParadaEmergencia} 
-          style={styles.emergencyBtn}
-          accessibilityLabel="Parada de emergência. Desliga imediatamente todos os motores e atuadores do robô"
-          accessibilityRole="button"
-        >
-          <Text style={styles.emergencyBtnText}>🛑 PARADA DE EMERGÊNCIA</Text>
-        </TouchableOpacity>
-      </ScrollView>
-
-      {Platform.OS !== 'web' && GamepadControllerMobile && (
-        <GamepadControllerMobile onData={handleGamepadDataMobile} />
-      )}
-    </View>
+        <MotorCard
+          side="DIREITO"
+          power={rightMotor}
+          pressed={pressedMotors.right}
+          onBoundsChange={(bounds) => {
+            motorBounds.current.right = bounds;
+          }}
+        />
+      </View>
+    </SafeAreaView>
   );
-};
+}
 
-const styles = StyleSheet.create({screenWrapper: { flex: 1 },fundoEscuro: { backgroundColor: '#0f172a' },fundoClaro: { backgroundColor: '#e2e8f0' },inverterCores: Platform.select({web: { filter: 'invert(0.9) hue-rotate(180deg)' },default: { opacity: 0.95 }}),container: { flex: 1 },scrollContent: { paddingHorizontal: 16, paddingBottom: 40 },themeToggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginVertical: 10, paddingHorizontal: 4 },statusRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, paddingLeft: 4 },sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#38bdf8', marginBottom: 10, marginTop: 12 },cameraContainer: { height: 220, backgroundColor: '#000000', borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: '#1e293b', marginBottom: 8, justifyContent: 'center', alignItems: 'center' },ipInput: { backgroundColor: '#1e293b', color: '#f8fafc', padding: 10, borderRadius: 10, marginBottom: 20, fontSize: 13, fontFamily: 'monospace' },joystickContainer: { backgroundColor: '#131b2e', borderRadius: 20, padding: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', marginBottom: 20, borderWidth: 1, borderColor: '#1e293b' },joystickDataView: { justifyContent: 'center', minWidth: 110 },joystickDataText: { color: '#94a3b8', fontSize: 13, fontWeight: '600', fontFamily: 'monospace', marginVertical: 3 },emergencyBtn: { backgroundColor: '#dc2626', padding: 18, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginTop: 24, borderWidth: 2, borderColor: '#f87171', minHeight: 48, minWidth: 48 },emergencyBtnText: { fontSize: 16, fontWeight: '900', color: '#ffffff', letterSpacing: 0.5 }});
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f4f6f8',
+    paddingHorizontal: 28,
+    paddingTop: 12,
+    paddingBottom: 18,
+  },
+  header: {
+    minHeight: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  brand: {
+    color: '#17212b',
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: 2,
+  },
+  headerSubtitle: {
+    color: '#77818b',
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    marginTop: 2,
+  },
+  connectionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+  },
+  connectedBadge: { backgroundColor: '#e6f6ee' },
+  offlineBadge: { backgroundColor: '#fceeed' },
+  connectionDot: { width: 7, height: 7, borderRadius: 4 },
+  connectedDot: { backgroundColor: '#18a66a' },
+  offlineDot: { backgroundColor: '#df5b53' },
+  connectionText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.8 },
+  connectedText: { color: '#168555' },
+  offlineText: { color: '#c34b45' },
+  content: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 22,
+    minHeight: 0,
+  },
+  contentCompact: { gap: 12 },
+  motorColumn: {
+    width: 112,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  motorCard: {
+    width: '100%',
+    flex: 1,
+    maxHeight: 340,
+    minHeight: 180,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#e3e7eb',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#d8dde2',
+  },
+  motorCardActive: {
+    backgroundColor: '#e8f4fb',
+    borderColor: '#b5ddf0',
+  },
+  motorHeader: { alignItems: 'center' },
+  motorStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#aab2ba',
+  },
+  motorStatusActive: { backgroundColor: '#2196c8' },
+  track: {
+    flexDirection: 'row',
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+  },
+  trackRail: {
+    alignSelf: 'stretch',
+    justifyContent: 'space-between',
+  },
+  trackPad: {
+    width: 12,
+    height: 15,
+    borderRadius: 5,
+    backgroundColor: '#bbc2c9',
+  },
+  trackPadActive: { backgroundColor: '#6cb9da' },
+  trackCenter: {
+    width: 42,
+    height: 70,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f7f8f9',
+    borderWidth: 1,
+    borderColor: '#d6dce1',
+  },
+  motorSign: { color: '#8a949d', fontSize: 23, fontWeight: '700' },
+  motorSignActive: { color: '#177eae' },
+  motorPower: {
+    color: '#77818a',
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  motorCaption: {
+    color: '#616b74',
+    fontSize: 10,
+    fontWeight: '700',
+    marginTop: 9,
+    letterSpacing: 0.5,
+  },
+  centerColumn: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+    gap: 12,
+  },
+  cameraFrame: {
+    flex: 1,
+    minHeight: 150,
+    maxHeight: 380,
+    backgroundColor: '#32383e',
+    borderRadius: 20,
+    overflow: 'hidden',
+    elevation: 3,
+  },
+  dashboardFooter: {
+    minHeight: 70,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  distanceCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e7eaed',
+  },
+  distanceIcon: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    backgroundColor: '#edf7fb',
+  },
+  sensorDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#2196c8',
+  },
+  sensorWave: {
+    width: 15,
+    height: 9,
+    marginTop: 3,
+    borderTopWidth: 1.5,
+    borderColor: '#2196c8',
+    borderRadius: 12,
+  },
+  distanceLabel: {
+    color: '#7a858e',
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  distanceValue: {
+    color: '#17212b',
+    fontSize: 18,
+    fontWeight: '800',
+    marginTop: 1,
+  },
+  distanceUnit: { color: '#7a858e', fontSize: 11, fontWeight: '600' },
+  gearSelector: {
+    alignItems: 'flex-end',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e3e8ec',
+  },
+  gearLabel: {
+    color: '#7a858e',
+    fontSize: 7,
+    fontWeight: '800',
+    letterSpacing: 0.7,
+  },
+  gearOptions: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  gearButton: {
+    minWidth: 42,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f0f3f5',
+    borderRadius: 9,
+  },
+  gearButtonSelected: { backgroundColor: '#218fbe' },
+  gearButtonText: { color: '#53616c', fontSize: 9, fontWeight: '800' },
+  gearButtonTextSelected: { color: '#ffffff' },
+});
