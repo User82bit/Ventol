@@ -1,21 +1,29 @@
-import React from 'react';
-import { StatusBar, StyleSheet } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import React, { useEffect } from 'react';
+import { Platform, StatusBar, StyleSheet, View } from 'react-native';
+import { NavigationBar } from 'expo-navigation-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import DashboardScreen from './src/screens/DashboardScreen';
 
 export default function App() {
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      // Keep Android's navigation controls hidden while the app is active.
+      NavigationBar.setHidden(true);
+    }
+  }, []);
+
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="light-content" backgroundColor="#0f172a" />
+      <View style={styles.container}>
+        <StatusBar hidden />
         <DashboardScreen />
-      </SafeAreaView>
+      </View>
     </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  container: {
     flex: 1,
     backgroundColor: '#0f172a',
   },
