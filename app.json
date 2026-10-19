@@ -14,7 +14,10 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "androidStatusBar": {
+        "hidden": true
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -24,10 +27,8 @@
       [
         "expo-navigation-bar",
         {
-          "position": "absolute",
-          "visibility": "hidden",
-          "behavior": "inset-swipe",
-          "backgroundColor": "#00000000"
+          "hidden": true,
+          "style": "dark"
         }
       ]
     ]
