@@ -1,114 +1,62 @@
 # Ventol
 
-**Version:** v1.4.0
+Aplicativo Android em React Native + Expo para controle remoto do robô do Projeto Éden.
 
-Um aplicativo mobile desenvolvido com React Native e Expo para controle e gerenciamento.
+## Comunicação
 
-## 📋 Descrição
+O Ventol não se conecta diretamente ao broker MQTT e não contém credenciais MQTT.
 
-Ventol é um aplicativo mobile que oferece funcionalidades de navegação, controle e perfil de usuário, com uma interface intuitiva e responsiva.
+1. O operador entra com e-mail e senha de uma conta administradora do Adan-Stella.
+2. O aplicativo recebe um JWT por POST /api/auth/login.
+3. O SignalR apresenta esse JWT nos hubs /controllerHub e /robotHub.
+4. O ControllerHub converte coordenadas X/Y em W/A/S/D/STOP e publica no tópico MQTT esp32/comandos/wasd.
+5. A telemetria MQTT esp32/dados é disponibilizada pelo RobotHub.
 
-## 🚀 Tecnologias
+Importante: /wasd não é um endpoint HTTP. É parte do tópico MQTT esp32/comandos/wasd usado pelo Adan-Stella e pelo firmware do ESP8266.
 
-- **React Native** - Framework para desenvolvimento mobile
-- **Expo** - Plataforma para desenvolvimento React Native
-- **React Navigation** - Navegação entre telas
-- **TypeScript** - Tipagem estática
-- **React 19.1.0** - Versão mais recente do React
+O aplicativo exige uma conta com isAdmin=true. O cadastro público do Adan-Stella cria contas comuns; somente usuários promovidos localmente no banco do backend podem controlar o robô.
 
-## 📁 Estrutura do Projeto
+## Endereço da API
 
-```
-Ventol/
-├── src/
-│   ├── components/          # Componentes reutilizáveis
-│   │   ├── button-nav.tsx
-│   │   ├── cards.tsx
-│   │   ├── LoadingSpinner.tsx
-│   │   └── Navigator-Bar.tsx
-│   ├── screens/            # Telas do aplicativo
-│   │   ├── HomeScreen.tsx
-│   │   ├── ControllerScreen.tsx
-│   │   ├── ContactScreen.tsx
-│   │   ├── InfoScreen.tsx
-│   │   └── ProfileScreen.tsx
-│   ├── constants/          # Constantes da aplicação
-│   │   └── colors.ts
-│   ├── hooks/              # Custom hooks
-│   │   └── useAppState.ts
-│   ├── types/              # Tipos TypeScript
-│   │   └── response.ts
-│   ├── assets/             # Imagens e recursos
-│   ├── App.tsx             # Componente principal
-│   └── index.ts            # Ponto de entrada
-├── AGENTS.md               # Configuração de agentes
-├── CLAUDE.md               # Instruções Claude
-├── app.json                # Configuração do Expo
-├── package.json            # Dependências
-├── tsconfig.json           # Configuração TypeScript
-└── README.md               # Este arquivo
-```
+A configuração padrão utiliza o HTTPS do Tailscale Funnel:
 
-## 🛠️ Instalação
+https://desktop-s66k8c7.tailc423e9.ts.net
 
-### Pré-requisitos
-- Node.js 18+ instalado
-- npm ou yarn
+Para substituir o endereço em desenvolvimento, defina EXPO_PUBLIC_API_URL antes de iniciar o Expo. O perfil EAS preview já recebe essa variável durante o build.
 
-### Passos
+## Segurança da sessão
 
-1. Clone o repositório:
-```bash
-git clone https://github.com/CarlosEduardS/Ventol.git
-cd Ventol
-```
+O JWT fica somente na memória do aplicativo. Ele não é gravado em AsyncStorage ou em arquivos. Ao fechar o aplicativo, o operador precisará entrar novamente.
 
-2. Instale as dependências:
-```bash
-npm install
-# ou
-yarn install
-```
+Não coloque JWT secret, Robot Device API Key, usuário/senha MQTT ou credenciais administrativas no bundle do aplicativo.
 
-3. Inicie o servidor de desenvolvimento:
-```bash
-npm start
-# ou
-yarn start
-```
+## Comandos de desenvolvimento
 
-## 📱 Executando em Diferentes Plataformas
+Instale as dependências e execute:
 
-```bash
-# Android
-npm run android
+- npm install
+- npx expo start
+- npx expo run:android (com ambiente Android local configurado)
 
-# iOS
-npm run ios
+## APK Android restrito
 
-# Web
-npm run web
-```
+O projeto contém um perfil EAS chamado preview, configurado para distribuição interna em APK.
 
-## 📖 Scripts Disponíveis
+1. Instale o EAS CLI: npm install -g eas-cli
+2. Entre na sua conta Expo: eas login
+3. Configure o projeto EAS: eas build:configure
+4. Gere o APK: eas build --platform android --profile preview
 
-- `npm start` - Inicia o servidor Expo
-- `npm run android` - Inicia no emulador Android
-- `npm run ios` - Inicia no simulador iOS
-- `npm run web` - Inicia na web
+O primeiro build pode solicitar a criação das credenciais de assinatura Android. Guarde o keystore e não o publique no Git.
 
-## 🤝 Contribuindo
+A distribuição interna do EAS gera um link de instalação. No painel do projeto Expo, desative a opção de acesso não autenticado aos builds internos para exigir que a pessoa entre em uma conta Expo autorizada para acessar o link.
 
-Contribuições são bem-vindas! Por favor, siga os padrões de código do projeto.
+A proteção principal, porém, é aplicada pelo Adan-Stella: mesmo que alguém obtenha uma cópia do APK, o aplicativo só abre a conexão de controle depois de receber um JWT de uma conta administradora. A instalação do APK Android, isoladamente, não pode ser limitada tecnicamente a uma lista de pessoas depois que o arquivo é copiado.
 
-## 📄 Licença
+## Segurança do controle
 
-Este projeto é privado.
-
-## 👤 Autor
-
-Carlos Eduardo Santos
-
----
-
-**Última atualização:** 2026-06-18
+- O Adan-Stella continua sendo o único cliente MQTT do lado da aplicação.
+- O Ventol envia coordenadas somente por SignalR com JWT.
+- Os hubs /controllerHub e /robotHub exigem AdminOnly no backend.
+- O app renova o último comando a cada 350 ms enquanto o controle está pressionado, para não expirar o watchdog de 1,2 s do ESP8266.
+- Ao desconectar ou fechar o aplicativo, o Ventol tenta enviar STOP. O watchdog do ESP também deve permanecer ativo como proteção independente.
