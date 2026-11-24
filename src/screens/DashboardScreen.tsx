@@ -95,7 +95,7 @@ function MotorCard({ side, power, pressed, onBoundsChange }: MotorCardProps) {
   );
 }
 
-export default function DashboardScreen() {
+export default function DashboardScreen({ onLogout }: { onLogout: () => void }) {
   const [pressedMotors, setPressedMotors] = useState<PressedMotors>({
     left: false,
     right: false,
@@ -122,7 +122,7 @@ export default function DashboardScreen() {
       : 0;
 
   useEffect(() => {
-    initConnections(
+    return initConnections(
       (data) => {
         try {
           const parsed = JSON.parse(data);
@@ -133,7 +133,16 @@ export default function DashboardScreen() {
           console.error('Error parsing robot data', error);
         }
       },
-      setIsConnected
+      (connected) => {
+        setIsConnected(connected);
+
+        // Se a conexão cair, limpa o estado dos botões. O ESP também possui
+        // watchdog independente para parar caso a rede seja perdida.
+        if (!connected) {
+          pressedMotorsRef.current = { left: false, right: false };
+          setPressedMotors({ left: false, right: false });
+        }
+      }
     );
   }, []);
 
@@ -194,11 +203,24 @@ export default function DashboardScreen() {
           <Text style={styles.brand}>VENTOL</Text>
           <Text style={styles.headerSubtitle}>PAINEL DE CONTROLE</Text>
         </View>
-        <View style={[styles.connectionBadge, isConnected ? styles.connectedBadge : styles.offlineBadge]}>
-          <View style={[styles.connectionDot, isConnected ? styles.connectedDot : styles.offlineDot]} />
-          <Text style={[styles.connectionText, isConnected ? styles.connectedText : styles.offlineText]}>
-            {isConnected ? 'CONECTADO' : 'OFFLINE'}
-          </Text>
+        <View style={styles.headerActions}>
+          <View style={[styles.connectionBadge, isConnected ? styles.connectedBadge : styles.offlineBadge]}>
+            <View style={[styles.connectionDot, isConnected ? styles.connectedDot : styles.offlineDot]} />
+            <Text style={[styles.connectionText, isConnected ? styles.connectedText : styles.offlineText]}>
+              {isConnected ? 'CONECTADO' : 'OFFLINE'}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Sair da conta"
+            style={styles.logoutButton}
+            onPress={() => {
+              void sendControl(0, 0);
+              onLogout();
+            }}
+          >
+            <Text style={styles.logoutText}>SAIR</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -304,6 +326,23 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 1.5,
     marginTop: 2,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  logoutButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    backgroundColor: '#e3e7eb',
+  },
+  logoutText: {
+    color: '#475569',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
   },
   connectionBadge: {
     flexDirection: 'row',
