@@ -191,6 +191,12 @@ export const initConnections = (
 };
 
 export const sendControl = async (x: number, y: number): Promise<void> => {
+  // Never queue movement while offline; reconnecting must not restart an old command.
+  if (!controllerHub || controllerHub.state !== signalR.HubConnectionState.Connected) {
+    currentControl = { x: 0, y: 0 };
+    return;
+  }
+
   currentControl = { x, y };
   await publishControl(x, y);
 };
