@@ -4,6 +4,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -51,6 +52,11 @@ export default function LoginScreen({ onAuthenticated }: Props) {
         style={styles.keyboard}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
         <View style={styles.card}>
           <View style={styles.brandMark}>
             <Text style={styles.brandMarkText}>V</Text>
@@ -111,6 +117,7 @@ export default function LoginScreen({ onAuthenticated }: Props) {
             Acesso restrito a administradores autorizados.
           </Text>
         </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -125,7 +132,11 @@ const styles = StyleSheet.create({
   },
   keyboard: {
     flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
+    paddingVertical: 12,
   },
   card: {
     width: '100%',
